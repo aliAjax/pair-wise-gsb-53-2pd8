@@ -32,6 +32,14 @@ python3 app.py --db ./data.db --port 8329
 - `GET /api/stats`：状态统计。
 - `POST /api/records`：创建记录，请求体为`{"reference":"...","data":{...}}`。
 - `POST /api/records/{id}/actions/{action}`：执行业务动作，请求体为`{"expected_version":1,"data":{...}}`。
+- `POST /api/records/{id}/reassign`：管理员或主管改派未结案件，请求体为`{"expected_version":3,"new_owner_id":"...","reason":"..."}`。
+
+## 案件负责人与改派
+
+- 接案人员建案后自动成为案件负责人（记录中的`owner_id`）。
+- 仅`admin`/`supervisor`可将未归档案件改派给其他案件专员；改派须携带页面上看到的`expected_version`，沿用乐观锁，版本落后返回冲突。
+- 改派成功后版本号加一，旧负责人再执行提交材料（`submit`）、发补件要求（`request_evidence`）、作决定（`decide`）或归档（`close`）都会被拒绝（403）并提示“案件已改派”。
+- 审计时间线记录`reassigned`事件，保留原负责人（`previous_owner_id`）、新负责人（`new_owner_id`）和操作人（`operator_id`）。
 
 除`/health`和`/`外，请求需提供`X-User-Id`、`X-Role`，可选`X-Org`。
 

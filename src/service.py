@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from .audit import AuditRecorder
 from .domain import Actor, PermissionDenied, text
 from .repository import Repository
-from .rules import DomainRules
+from .rules import DomainRules, OWNER_GATED_ACTIONS
 
 
 class Service:
@@ -47,9 +47,11 @@ class Service:
         actor = self._actor(actor)
         self._ensure_known_role(actor)
         action = text({"action": action}, "action")
+        record = self.repository.get(record_id)
+        if action in OWNER_GATED_ACTIONS and actor.user_id != record["owner_id"] and actor.user_id in self.repository.former_owners(record_id):
+            raise PermissionDenied("案件已改派，原负责人不能再处理该案件")
         if not self.rules.role_can_action(actor.role, action):
             raise PermissionDenied("角色无权执行该操作")
-        record = self.repository.get(record_id)
         self.rules.require_transition(record, action)
         new_state, new_payload, summary = self.rules.apply_action(record, action, data or {})
         return self.repository.mutate(
@@ -60,6 +62,21 @@ class Service:
             actor_id=actor.user_id,
             action=action,
             details={"summary": summary, "input": data or {}, "from": record["state"], "to": new_state},
+        )
+
+    def reassign(self, actor: Actor, record_id: int, expected_version: int, new_owner_id: str, reason: str = "") -> Dict[str, Any]:
+        actor = self._actor(actor)
+        self._ensure_known_role(actor)
+        if not self.rules.role_can_reassign(actor.role):
+            raise PermissionDenied("只有管理员或主管可以改派案件")
+        record = self.repository.get(record_id)
+        new_owner_id = self.rules.validate_reassign(record, new_owner_id)
+        return self.repository.reassign(
+            record_id=record_id,
+            expected_version=int(expected_version),
+            new_owner_id=new_owner_id,
+            actor_id=actor.user_id,
+            reason=reason or "",
         )
 
     def timeline(self, actor: Actor, record_id: int) -> List[Dict[str, Any]]:

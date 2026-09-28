@@ -12,6 +12,7 @@ from .domain import Actor, DomainError, PermissionDenied, ValidationError
 RECORD_RE = re.compile(r"^/api/records/(\d+)$")
 ACTION_RE = re.compile(r"^/api/records/(\d+)/actions/([a-z_]+)$")
 AUDIT_RE = re.compile(r"^/api/records/(\d+)/audit$")
+REASSIGN_RE = re.compile(r"^/api/records/(\d+)/reassign$")
 
 
 def make_handler(service: Any, static_dir: Path):
@@ -98,6 +99,20 @@ def make_handler(service: Any, static_dir: Path):
                 if parsed.path == "/api/records":
                     record = service.create(self._actor(), body.get("reference", ""), body.get("data", {}))
                     self._send(201, record)
+                    return
+                match = REASSIGN_RE.match(parsed.path)
+                if match:
+                    version = body.get("expected_version")
+                    if not isinstance(version, int):
+                        raise ValidationError("expected_version必须是整数")
+                    record = service.reassign(
+                        self._actor(),
+                        int(match.group(1)),
+                        version,
+                        body.get("new_owner_id", ""),
+                        body.get("reason", "") if isinstance(body.get("reason", ""), str) else "",
+                    )
+                    self._send(200, record)
                     return
                 match = ACTION_RE.match(parsed.path)
                 if match:

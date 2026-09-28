@@ -8,6 +8,9 @@ INITIAL_STATE = "draft"
 CREATE_ROLES = {'intake_officer'}
 ACTION_ROLES = {'submit': {'legal_rep', 'case_officer'}, 'request_evidence': {'case_officer'}, 'respond': {'legal_rep'}, 'decide': {'case_officer', 'supervisor'}, 'appeal': {'legal_rep'}, 'close': {'supervisor'}}
 TRANSITIONS = {'submit': {'draft': 'submitted'}, 'request_evidence': {'submitted': 'evidence_requested'}, 'respond': {'evidence_requested': 'response_received'}, 'decide': {'submitted': 'decided', 'response_received': 'decided'}, 'appeal': {'decided': 'appealed'}, 'close': {'decided': 'closed', 'appealed': 'closed'}}
+REASSIGN_ROLES = {'admin', 'supervisor'}
+OWNER_GATED_ACTIONS = {'submit', 'request_evidence', 'decide', 'close'}
+CLOSED_STATE = "closed"
 
 
 class DomainRules:
@@ -24,6 +27,17 @@ class DomainRules:
 
     def role_can_action(self, role: str, action: str) -> bool:
         return role == "admin" or role in ACTION_ROLES.get(action, set())
+
+    def role_can_reassign(self, role: str) -> bool:
+        return role in REASSIGN_ROLES
+
+    def validate_reassign(self, record: Dict[str, Any], new_owner_id: str) -> str:
+        new_owner_id = text({"new_owner_id": new_owner_id}, "new_owner_id")
+        if record["state"] == CLOSED_STATE:
+            raise Conflict("已归档案件不能改派")
+        if new_owner_id == record["owner_id"]:
+            raise ValidationError("新负责人与当前负责人相同")
+        return new_owner_id
 
     def validate_create(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         p = dict(payload)
