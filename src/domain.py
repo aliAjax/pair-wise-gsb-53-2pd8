@@ -28,6 +28,11 @@ class PermissionDenied(DomainError):
     code = "permission_denied"
 
 
+class CaseReassigned(PermissionDenied):
+    """案件已改派给其他负责人，原负责人继续操作被拒绝。"""
+    code = "case_reassigned"
+
+
 @dataclass(frozen=True)
 class Actor:
     user_id: str

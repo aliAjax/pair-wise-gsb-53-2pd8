@@ -36,7 +36,8 @@ class Repository:
                     created_by TEXT NOT NULL,
                     updated_by TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    owner_id TEXT
                 );
                 CREATE TABLE IF NOT EXISTS audit_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,6 +52,11 @@ class Repository:
                 CREATE INDEX IF NOT EXISTS idx_audit_record ON audit_events(record_id, id);
                 """
             )
+            # 旧库迁移：补充负责人字段，并把历史案件的负责人回填为创建人。
+            columns = [row["name"] for row in connection.execute("PRAGMA table_info(records)").fetchall()]
+            if "owner_id" not in columns:
+                connection.execute("ALTER TABLE records ADD COLUMN owner_id TEXT")
+                connection.execute("UPDATE records SET owner_id=created_by WHERE owner_id IS NULL")
 
     @staticmethod
     def _row(row: sqlite3.Row) -> Dict[str, Any]:
@@ -63,8 +69,8 @@ class Repository:
         try:
             with self._connect() as connection:
                 cursor = connection.execute(
-                    "INSERT INTO records(reference,state,version,payload,created_by,updated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-                    (reference, state, 1, json.dumps(payload, ensure_ascii=False, sort_keys=True), actor_id, actor_id, now, now),
+                    "INSERT INTO records(reference,state,version,payload,created_by,updated_by,created_at,updated_at,owner_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (reference, state, 1, json.dumps(payload, ensure_ascii=False, sort_keys=True), actor_id, actor_id, now, now, actor_id),
                 )
                 record_id = int(cursor.lastrowid)
                 connection.execute(
@@ -111,6 +117,51 @@ class Repository:
             connection.execute(
                 "INSERT INTO audit_events(record_id,action,actor_id,version,details,created_at) VALUES(?,?,?,?,?,?)",
                 (record_id, action, actor_id, version, json.dumps(details, ensure_ascii=False, sort_keys=True), now),
+            )
+            result = connection.execute("SELECT * FROM records WHERE id=?", (record_id,)).fetchone()
+            connection.commit()
+        return self._row(result)
+
+    def is_former_owner(self, record_id: int, user_id: str) -> bool:
+        """该用户是否曾是负责人（在转派事件中作为原负责人交出过案件）。"""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM audit_events WHERE record_id=? AND action='reassign' "
+                "AND json_extract(details, '$.from_owner')=? LIMIT 1",
+                (record_id, user_id),
+            ).fetchone()
+        return row is not None
+
+    def reassign(self, record_id: int, expected_version: int, new_owner_id: str, operator_id: str) -> Dict[str, Any]:
+        now = _now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT version, owner_id FROM records WHERE id=?", (record_id,)).fetchone()
+            if row is None:
+                connection.rollback()
+                raise NotFound("记录不存在")
+            if int(row["version"]) != int(expected_version):
+                connection.rollback()
+                raise Conflict("版本冲突，请刷新后重试")
+            version = int(expected_version) + 1
+            connection.execute(
+                "UPDATE records SET owner_id=?,version=?,updated_by=?,updated_at=? WHERE id=?",
+                (new_owner_id, version, operator_id, now, record_id),
+            )
+            connection.execute(
+                "INSERT INTO audit_events(record_id,action,actor_id,version,details,created_at) VALUES(?,?,?,?,?,?)",
+                (
+                    record_id,
+                    "reassign",
+                    operator_id,
+                    version,
+                    json.dumps(
+                        {"from_owner": row["owner_id"], "to_owner": new_owner_id, "operator": operator_id},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    now,
+                ),
             )
             result = connection.execute("SELECT * FROM records WHERE id=?", (record_id,)).fetchone()
             connection.commit()

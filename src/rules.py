@@ -9,6 +9,15 @@ CREATE_ROLES = {'intake_officer'}
 ACTION_ROLES = {'submit': {'legal_rep', 'case_officer'}, 'request_evidence': {'case_officer'}, 'respond': {'legal_rep'}, 'decide': {'case_officer', 'supervisor'}, 'appeal': {'legal_rep'}, 'close': {'supervisor'}}
 TRANSITIONS = {'submit': {'draft': 'submitted'}, 'request_evidence': {'submitted': 'evidence_requested'}, 'respond': {'evidence_requested': 'response_received'}, 'decide': {'submitted': 'decided', 'response_received': 'decided'}, 'appeal': {'decided': 'appealed'}, 'close': {'decided': 'closed', 'appealed': 'closed'}}
 
+# 转派：仅管理员或主管可将未结案案件交给其他案件专员。
+REASSIGN_ROLES = {'admin', 'supervisor'}
+# 可以担任案件负责人的角色（接案人员建案后即为负责人）。
+OWNER_ROLES = {'intake_officer', 'case_officer'}
+# 负责人才能执行的内部处理动作；案件改派后原负责人继续执行这些动作会被拒绝。
+OWNER_ACTIONS = {'submit', 'request_evidence', 'decide', 'close'}
+# 已结案的案件不能再转派。
+CLOSED_STATE = "closed"
+
 
 class DomainRules:
     INITIAL_STATE = INITIAL_STATE
@@ -24,6 +33,19 @@ class DomainRules:
 
     def role_can_action(self, role: str, action: str) -> bool:
         return role == "admin" or role in ACTION_ROLES.get(action, set())
+
+    def role_can_reassign(self, role: str) -> bool:
+        return role == "admin" or role in REASSIGN_ROLES
+
+    def is_owner_action(self, action: str) -> bool:
+        return action in OWNER_ACTIONS
+
+    def is_owner_role(self, role: str) -> bool:
+        return role in OWNER_ROLES
+
+    def can_reassign(self, record: Dict[str, Any]) -> bool:
+        """未结案的案件才能转派。"""
+        return record.get("state") != CLOSED_STATE
 
     def validate_create(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         p = dict(payload)

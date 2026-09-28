@@ -32,8 +32,16 @@ python3 app.py --db ./data.db --port 8329
 - `GET /api/stats`：状态统计。
 - `POST /api/records`：创建记录，请求体为`{"reference":"...","data":{...}}`。
 - `POST /api/records/{id}/actions/{action}`：执行业务动作，请求体为`{"expected_version":1,"data":{...}}`。
+- `POST /api/records/{id}/reassign`：转派案件负责人（仅管理员/主管，未结案案件），请求体为`{"expected_version":1,"new_owner_id":"case_officer2"}`。
 
 除`/health`和`/`外，请求需提供`X-User-Id`、`X-Role`，可选`X-Org`。
+
+## 案件负责人机制
+
+- 接案人员建案后即成为该案件的负责人（`owner_id`），记录在详情与列表中返回。
+- 管理员或主管可通过`/api/records/{id}/reassign`把未结案案件交给其他案件专员；转派必须携带页面看到的`expected_version`，版本落后会返回`409`版本冲突。
+- 转派后版本号递增，时间线新增一条`reassign`事件，记录原负责人`from_owner`、新负责人`to_owner`和操作人`operator`。
+- 案件改派后，原负责人继续提交材料、发补件要求、作决定或归档都会被拒绝（`403`，错误码`case_reassigned`），并提示案件已改派；新负责人可正常处理。
 
 ## 测试
 

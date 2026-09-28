@@ -17,10 +17,16 @@
   <h1>移民案件期限与材料管理</h1>
   <p>最小演示页。完整业务流程通过README中的JSON接口调用。</p>
   <div class="row"><button id="load">加载记录</button><button id="stats">查看状态统计</button></div>
+  <div class="row" style="margin-top:1rem;">
+    <label>案件ID <input id="rid" type="number" min="1" style="width:6rem;"></label>
+    <label>新版本号 <input id="rver" type="number" min="1" style="width:6rem;"></label>
+    <label>新负责人 <input id="rowner" type="text" placeholder="case_officer2" style="width:10rem;"></label>
+    <button id="reassign">转派案件</button>
+  </div>
   <pre id="output">点击上方按钮读取服务状态。</pre>
 </main>
 <script>
-const headers = {"X-User-Id":"demo-admin","X-Role":"admin","X-Org":"demo"};
+const headers = {"Content-Type":"application/json","X-User-Id":"demo-admin","X-Role":"admin","X-Org":"demo"};
 async function show(path) {
   const response = await fetch(path, {headers});
   const data = await response.json();
@@ -28,6 +34,16 @@ async function show(path) {
 }
 document.getElementById("load").onclick = () => show("/api/records?limit=20");
 document.getElementById("stats").onclick = () => show("/api/stats");
+document.getElementById("reassign").onclick = async () => {
+  const id = document.getElementById("rid").value;
+  const body = {
+    expected_version: parseInt(document.getElementById("rver").value, 10),
+    new_owner_id: document.getElementById("rowner").value.trim()
+  };
+  const response = await fetch("/api/records/" + id + "/reassign", {method: "POST", headers, body: JSON.stringify(body)});
+  const data = await response.json();
+  document.getElementById("output").textContent = JSON.stringify(data, null, 2);
+};
 </script>
 </body>
 </html>

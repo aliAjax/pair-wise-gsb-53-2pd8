@@ -11,6 +11,7 @@ from .domain import Actor, DomainError, PermissionDenied, ValidationError
 
 RECORD_RE = re.compile(r"^/api/records/(\d+)$")
 ACTION_RE = re.compile(r"^/api/records/(\d+)/actions/([a-z_]+)$")
+REASSIGN_RE = re.compile(r"^/api/records/(\d+)/reassign$")
 AUDIT_RE = re.compile(r"^/api/records/(\d+)/audit$")
 
 
@@ -105,6 +106,14 @@ def make_handler(service: Any, static_dir: Path):
                     if not isinstance(version, int):
                         raise ValidationError("expected_version必须是整数")
                     record = service.act(self._actor(), int(match.group(1)), version, match.group(2), body.get("data", {}))
+                    self._send(200, record)
+                    return
+                match = REASSIGN_RE.match(parsed.path)
+                if match:
+                    version = body.get("expected_version")
+                    if not isinstance(version, int):
+                        raise ValidationError("expected_version必须是整数")
+                    record = service.reassign(self._actor(), int(match.group(1)), version, body.get("new_owner_id", ""))
                     self._send(200, record)
                     return
                 self._send(404, {"error": "not_found", "message": "路径不存在"})
